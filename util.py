@@ -4,7 +4,7 @@ import dotml.cli
 import psycopg2
 import sqlalchemy
 from sqlalchemy import create_engine
-from openai import OpenAI
+import openai
 import json
 import uuid
 import random
@@ -85,7 +85,7 @@ async def scanDbData(dbdata):
             cur = conn.cursor()
             sql =addDataTableQuery
 
-            schema_data = load_json("schema_info_mysql.json")
+            schema_data = load_json("schema_info_mssql.json")
             for schema in schema_data:
                 schema_name = schema.get("schema_name", "public")
                 tables = schema.get("tables", [])
@@ -171,3 +171,41 @@ async def scanDbData(dbdata):
             return {'statusCode':200}
     except Exception as e:
         return e
+    
+
+async def generate_json_data(data):
+    schema_info = []
+
+    for table in data:
+        schema_name = table.get("schema")
+        table_name = table["table_name"].replace(f"{schema_name}.", "")
+
+        schema = next((s for s in schema_info if s["schema_name"] == schema_name), None)
+
+        if not schema:
+            schema = {"schema_name": schema_name, "tables": []}
+            schema_info.append(schema)
+
+        table_info = {
+            "table_name": table_name,
+            "description": "",
+            "fields": [],
+            "relationships": table.get("relationships", []),
+        }
+        example_data = table.get("example_data", {})
+
+        for column in table["columns"]:
+            field_info = {
+                "name": column["name"],
+                "type": column["type"],
+                "description": column.get("description", "No description available."),
+                "example": example_data.get(column["name"], "none"),
+            }
+            table_info["fields"].append(field_info)
+
+        schema["tables"].append(table_info)
+
+    with open("schema_info_mssql.json", "w") as file:
+        json.dump(schema_info, file, indent=4)
+
+    return schema_info

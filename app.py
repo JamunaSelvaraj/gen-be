@@ -5,7 +5,7 @@ from psycopg2 import OperationalError
 from mysqldata import get_mysqltable_data
 import json
 from flask import Flask
-from util import get_description,scanDbData
+from util import get_description,scanDbData,generate_json_data
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
@@ -166,42 +166,6 @@ async def get_table_data(conn_str):
             conn.close()
 
 
-async def generate_json_data(data):
-    schema_info = []
-
-    for table in data:
-        schema_name = table.get("schema")
-        table_name = table["table_name"].replace(f"{schema_name}.", "")
-
-        schema = next((s for s in schema_info if s["schema_name"] == schema_name), None)
-
-        if not schema:
-            schema = {"schema_name": schema_name, "tables": []}
-            schema_info.append(schema)
-
-        table_info = {
-            "table_name": table_name,
-            "description": "",
-            "fields": [],
-            "relationships": table.get("relationships", []),
-        }
-        example_data = table.get("example_data", {})
-
-        for column in table["columns"]:
-            field_info = {
-                "name": column["name"],
-                "type": column["type"],
-                "description": column.get("description", "No description available."),
-                "example": example_data.get(column["name"], "none"),
-            }
-            table_info["fields"].append(field_info)
-
-        schema["tables"].append(table_info)
-
-    with open("schema_info.json", "w") as file:
-        json.dump(schema_info, file, indent=4, cls=CustomJSONEncoder)
-
-    return schema_info
 
 
 class createData(BaseModel):

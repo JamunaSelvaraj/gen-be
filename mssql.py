@@ -1,49 +1,37 @@
 from datetime import datetime
 import pyodbc
-from util import get_description
-
+from util import get_description,generate_json_data
 
 async def fetch_mssql_schema_data(conn_str):
-    conn = pyodbc.connect(conn_str)
-    cursor = conn.cursor()
+    try:
 
-    schema_query = """
-    SELECT schema_name 
-    FROM information_schema.schemata 
-    WHERE schema_name NOT IN ('information_schema', 'sys', 'guest', 'dbo', 'INFORMATION_SCHEMA')
-    """
+            conn = pyodbc.connect(conn_str)
+            cursor = conn.cursor()
+            print(cursor)
+            # Fetch table names directly
+            table_query = """
+        SELECT table_schema, table_name 
+                FROM information_schema.tables 
+                WHERE table_type = 'BASE TABLE'
+            """
 
-    cursor.execute(schema_query)
-    schemas = cursor.fetchall()
+            cursor.execute(table_query)
+            tables = cursor.fetchall()
+            print(tables,'cfghj')
+            table_info_list = []
 
-    schema_info = []
-
-    for schema in schemas:
-        schema_name = schema[0]
-
-        table_query = f"""
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = '{schema_name}'
-        """
-
-        cursor.execute(table_query)
-        tables = cursor.fetchall()
-
-        if len(tables) == 0:
-            table_info = {"table_name": schema_name, "columns": []}
-            schema_info.append(table_info)
-        else:
             for table in tables:
-                table_name = table[0]
-                full_table_name = f"{schema_name}.{table_name}"
+                schema_name, table_name = table
+                print(schema_name,table_name,'table')
+            #     full_table_name = f"{schema_name}.{table_name}"
                 table_info = {
                     "schema": schema_name,
-                    "table_name": full_table_name,
+                    "table_name": table_name,
                     "columns": [],
                     "relationships": [],
                 }
 
+            #     # Fetch columns for the current table
                 column_query = f"""
                 SELECT column_name, data_type 
                 FROM information_schema.columns 
@@ -64,6 +52,7 @@ async def fetch_mssql_schema_data(conn_str):
                         }
                     )
 
+            #     # Fetch foreign key relationships for the current table
                 fk_query = f"""
                 SELECT
                     kcu.column_name,
@@ -99,10 +88,10 @@ async def fetch_mssql_schema_data(conn_str):
                         }
                     )
 
+            #     # Fetch example data for the current table
                 latest_data_query = f"""
-                SELECT TOP 3 *
+                SELECT *
                 FROM {schema_name}.{table_name}
-                ORDER BY id DESC
                 """
                 cursor.execute(latest_data_query)
                 latest_data = cursor.fetchall()
@@ -119,9 +108,7 @@ async def fetch_mssql_schema_data(conn_str):
                             if isinstance(value, (int, float, str, bool)):
                                 column_examples[column_name].append(value)
                             elif isinstance(value, datetime):
-                                column_examples[column_name].append(
-                                    value.isoformat()
-                                )
+                                column_examples[column_name].append(value.isoformat())
                             else:
                                 column_examples[column_name].append(str(value))
                         except IndexError:
@@ -134,10 +121,11 @@ async def fetch_mssql_schema_data(conn_str):
 
                 table_info["example_data"] = column_examples
 
-                schema_info.append(table_info)
+                table_info_list.append(table_info)
+            
 
-    return schema_info
-
-conn_str = 'DRIVER={ODBC Driver 17 for SQL Server};SERVER=your_server_name;DATABASE=your_database_name;UID=your_username;PWD=your_password'
-schema_data = fetch_mssql_schema_data(conn_str)
-print(schema_data)
+            jsonresult=await generate_json_data(table_info_list)
+            return jsonresult
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
