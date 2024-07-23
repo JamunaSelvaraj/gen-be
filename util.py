@@ -1,6 +1,7 @@
 # Assuming you're using a Python backend
 import dotml
 import dotml.cli
+import psycopg2
 import sqlalchemy
 from sqlalchemy import create_engine
 from openai import OpenAI
@@ -8,6 +9,7 @@ import json
 import uuid
 import random
 import yaml
+from querys import addDataTableQuery,getDataTable,addTableSchemaQuery,getTableSchema,updateTableSchema
 
 def load_json(file_path):
     with open(file_path, 'r') as f:
@@ -71,3 +73,101 @@ async def generate_dotml(data):
     with open('schema_info1.json', 'w') as file:
         yaml.dump(schema_info, file,default_flow_style=False, sort_keys=False)
     return True
+
+def get_description(column_name, table_name):
+    return f"This is the '{column_name}' column of the '{table_name}' table."
+
+async def scanDbData(dbdata):
+    try:
+            print(dbdata['db_url'])
+            data=dbdata
+            conn = psycopg2.connect(dbdata["db_url"])
+            cur = conn.cursor()
+            sql =addDataTableQuery
+
+            schema_data = load_json("schema_info_mysql.json")
+            for schema in schema_data:
+                schema_name = schema.get("schema_name", "public")
+                tables = schema.get("tables", [])
+                for table in tables:
+                    table_name = table.get("table_name", None)
+
+                    if table_name:
+                        tableid = generateUUid()
+                        data_table_values = (
+                            str(tableid),
+                            table_name,
+                            schema_name,
+                            data["appid"],
+                            json.dumps(table),
+                        )
+                        try:
+                            cur.execute(
+                                getDataTable,
+                                (table_name, data["appid"]),
+                            )
+                            exData = cur.fetchone()
+                            if exData is not None:
+                                data_table_id = exData[0]
+                            else:
+                                cur.execute(sql, data_table_values)
+                                conn.commit()
+                                data_table_id = cur.fetchone()[0]
+                        except psycopg2.errors.UniqueViolation:
+                            print(f"Duplicate UUID detected: {data_table_id}")
+                            conn.rollback()
+                            continue
+                        except Exception as e:
+                            print(f"Error inserting into data_table: {e}")
+                            conn.rollback()
+                            continue
+
+                        table_schema_sql = addTableSchemaQuery
+                        for field_data in table.get("fields", []):
+                            columnid = generateUUid()
+                            example_data = (
+                                json.dumps(field_data["example"])
+                                if isinstance(field_data["example"], dict)
+                                else field_data["example"]
+                            )
+                            table_schema_values = (
+                                str(columnid),
+                                field_data["name"],
+                                field_data["type"],
+                                example_data,
+                                field_data["description"],
+                                data_table_id,
+                            )
+                            try:
+                                cur.execute(
+                                   getTableSchema,
+                                    (field_data["name"], data_table_id),
+                                )
+                                exfieldData = cur.fetchone()
+                                if exfieldData is None:
+                                    cur.execute(table_schema_sql, table_schema_values)
+                                else:
+                                    update_query =updateTableSchema
+                                    update_values = (
+                                        field_data["type"],
+                                        example_data,
+                                        field_data["description"],
+                                        field_data["name"],
+                                        data_table_id,
+                                    )
+                                    cur.execute(update_query, update_values)
+
+                            except psycopg2.errors.UniqueViolation:
+                                print(f"Duplicate UUID detected: {str(columnid)}")
+                                conn.rollback()
+                                continue
+                            except Exception as e:
+                                print(f"Error inserting into table_schema: {e}")
+                                conn.rollback()
+                                continue
+            conn.commit()
+            cur.close()
+            conn.close()
+            return {'statusCode':200}
+    except Exception as e:
+        return e

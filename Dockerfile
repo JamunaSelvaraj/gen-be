@@ -15,7 +15,6 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 # Copy the content of the local src directory to the working directory
 COPY . /app
-RUN prisma generate
 EXPOSE 8000
 # Run FastAPI application using uvicorn
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
